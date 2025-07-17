@@ -1,0 +1,12 @@
+http:
+  port: 8000
+  health_check_path: /health
+name: Research Agent
+summary: A research agent powered by GPT Researcher that conducts comprehensive research and generates reports based on a given query.
+environment_variables:
+  - name: OPENAI_API_KEY
+    value: <your_openai_api_key>
+    description: The OpenAI API key required for the GPTResearcher to function.
+  - name: TAVILY_API_KEY
+    value: <your_tavily_api_key>
+    description: The Tavily API key required for the GPTResearcher to function, likely used for search and information retrieval.
