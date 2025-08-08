@@ -371,8 +371,16 @@
                 clearInterval(progressInterval);
 
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Research failed');
+                    let errorMessage = 'Research failed';
+                    try {
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                    } catch (parseError) {
+                        // If response is not JSON, get text content
+                        const errorText = await response.text();
+                        errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`;
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const data = await response.json();

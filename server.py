@@ -59,9 +59,9 @@ async def conduct_research(request: ResearchRequest) -> Dict:
         if not os.getenv("TAVILY_API_KEY"):
             raise HTTPException(status_code=500, detail="Tavily API key not configured")
 
-        # Create researcher instance
+        # Create researcher instance with disabled verbose to avoid ANSI codes
         researcher = GPTResearcher(
-            query=request.query, report_type=request.report_type, verbose=True
+            query=request.query, report_type=request.report_type, verbose=False
         )
 
         # Conduct research with timeout
@@ -76,23 +76,43 @@ async def conduct_research(request: ResearchRequest) -> Dict:
         report_task = asyncio.create_task(researcher.write_report())
         report = await asyncio.wait_for(report_task, timeout=120)  # 2 minutes for report generation
 
-        # Get additional information
-        sources = researcher.get_source_urls()
-        costs_value = researcher.get_costs()
-        research_sources = researcher.get_research_sources()
+        # Clean the report from any ANSI codes and ensure it's valid
+        import re
+        clean_report = re.sub(r'\x1b\[[0-9;]*m', '', str(report))  # Remove ANSI codes
+        clean_report = clean_report.strip()
+
+        # Get additional information safely
+        try:
+            sources = researcher.get_source_urls() or []
+        except Exception:
+            sources = []
+
+        try:
+            costs_value = researcher.get_costs()
+        except Exception:
+            costs_value = 0
+
+        try:
+            research_sources = researcher.get_research_sources() or []
+        except Exception:
+            research_sources = []
 
         # Format costs as a dictionary
         costs_dict = {
-            "total_cost": costs_value if isinstance(costs_value, (int, float)) else 0,
+            "total_cost": float(costs_value) if isinstance(costs_value, (int, float)) else 0.0,
             "total_tokens": 0,  # GPT Researcher doesn't provide token count directly
         }
 
-        return {
-            "report": report,
-            "sources": sources,
+        # Ensure all data is JSON serializable
+        response_data = {
+            "report": clean_report,
+            "sources": [str(source) for source in sources],
             "costs": costs_dict,
             "num_sources": len(research_sources),
         }
+
+        print(f"Research completed successfully. Report length: {len(clean_report)} chars")
+        return response_data
 
     except asyncio.TimeoutError:
         print("Research timed out")
@@ -101,8 +121,10 @@ async def conduct_research(request: ResearchRequest) -> Dict:
             detail="Research timed out. Try a more specific query or use a shorter report type."
         )
     except Exception as e:
-        print(f"Error during research: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error during research: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Research failed: {str(e)}")
 
 
 @app.get("/health")
@@ -130,5 +152,7 @@ if __name__ == "__main__":
         port=8000,
         reload=False,  # Disable auto-reload for stability
         timeout_keep_alive=600,  # 10 minutes keep-alive
-        timeout_graceful_shutdown=60
+        timeout_graceful_shutdown=60,
+        limit_max_requests=1000,
+        limit_concurrency=10
     )
