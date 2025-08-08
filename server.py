@@ -80,11 +80,13 @@ async def conduct_research(request: ResearchRequest) -> Dict:
         # Use asyncio.wait_for to enforce timeout
         research_task = asyncio.create_task(researcher.conduct_research())
         await asyncio.wait_for(research_task, timeout=480)  # 8 minutes for research
+        print("Research phase completed")
 
         # Generate report with timeout
         print("Generating report...")
         report_task = asyncio.create_task(researcher.write_report())
         report = await asyncio.wait_for(report_task, timeout=120)  # 2 minutes for report generation
+        print("Report generation completed")
 
         # Clean the report from any ANSI codes and ensure it's valid
         import re
@@ -122,6 +124,21 @@ async def conduct_research(request: ResearchRequest) -> Dict:
         }
 
         print(f"Research completed successfully. Report length: {len(clean_report)} chars")
+
+        # Add explicit logging before return
+        print("Preparing JSON response...")
+
+        # Validate response size (some proxies have limits)
+        import sys
+        response_size = sys.getsizeof(str(response_data))
+        print(f"Response size: {response_size} bytes")
+
+        if response_size > 10 * 1024 * 1024:  # 10MB limit
+            # Truncate report if too large
+            clean_report = clean_report[:50000] + "\n\n[Report truncated due to size limits]"
+            response_data["report"] = clean_report
+            print("Report truncated due to size")
+
         return response_data
 
     except asyncio.TimeoutError:
@@ -164,5 +181,7 @@ if __name__ == "__main__":
         timeout_keep_alive=600,  # 10 minutes keep-alive
         timeout_graceful_shutdown=60,
         limit_max_requests=1000,
-        limit_concurrency=10
+        limit_concurrency=10,
+        max_request_size=16 * 1024 * 1024,  # 16MB max request
+        max_response_size=16 * 1024 * 1024  # 16MB max response
     )
