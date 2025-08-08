@@ -50,7 +50,7 @@ async def root():
 @app.post("/research", response_model=ResearchResponse)
 async def conduct_research(request: ResearchRequest) -> Dict:
     """
-    Conduct research using GPT Researcher
+    Conduct research using GPT Researcher with timeout protection
     """
     try:
         # Validate API keys
@@ -64,13 +64,17 @@ async def conduct_research(request: ResearchRequest) -> Dict:
             query=request.query, report_type=request.report_type, verbose=True
         )
 
-        # Conduct research
+        # Conduct research with timeout
         print(f"Starting research for: {request.query}")
-        await researcher.conduct_research()
 
-        # Generate report
+        # Use asyncio.wait_for to enforce timeout
+        research_task = asyncio.create_task(researcher.conduct_research())
+        await asyncio.wait_for(research_task, timeout=480)  # 8 minutes for research
+
+        # Generate report with timeout
         print("Generating report...")
-        report = await researcher.write_report()
+        report_task = asyncio.create_task(researcher.write_report())
+        report = await asyncio.wait_for(report_task, timeout=120)  # 2 minutes for report generation
 
         # Get additional information
         sources = researcher.get_source_urls()
@@ -90,6 +94,12 @@ async def conduct_research(request: ResearchRequest) -> Dict:
             "num_sources": len(research_sources),
         }
 
+    except asyncio.TimeoutError:
+        print("Research timed out")
+        raise HTTPException(
+            status_code=408,
+            detail="Research timed out. Try a more specific query or use a shorter report type."
+        )
     except Exception as e:
         print(f"Error during research: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -114,4 +124,11 @@ if __name__ == "__main__":
     print(
         "Make sure you have set OPENAI_API_KEY and TAVILY_API_KEY in your environment"
     )
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "server:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,  # Disable auto-reload for stability
+        timeout_keep_alive=600,  # 10 minutes keep-alive
+        timeout_graceful_shutdown=60
+    )
