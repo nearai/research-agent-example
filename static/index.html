@@ -145,6 +145,12 @@
             }
         }
 
+        .progress-text {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
         .results-section {
             display: none;
             background-color: white;
@@ -256,8 +262,8 @@
 
             <div class="loading" id="loadingSection">
                 <div class="spinner"></div>
-                <p>Researching... This may take a few minutes</p>
-                <p style="font-size: 14px; color: #7f8c8d; margin-top: 10px;">
+                <p>Researching... This may take up to 10 minutes</p>
+                <p class="progress-text" id="progressText">
                     GPT Researcher is gathering information from multiple sources...
                 </p>
             </div>
@@ -293,6 +299,9 @@
         const resultsSection = document.getElementById('resultsSection');
         const errorMessage = document.getElementById('errorMessage');
         const warningMessage = document.getElementById('warningMessage');
+        const progressText = document.getElementById('progressText');
+
+        let abortController = null;
 
         // Check API health on load
         window.addEventListener('load', async () => {
@@ -324,6 +333,27 @@
             loadingSection.style.display = 'block';
             submitBtn.disabled = true;
 
+            // Create abort controller for timeout
+            abortController = new AbortController();
+
+            // Set timeout for 11 minutes (slightly longer than backend timeout)
+            const timeoutId = setTimeout(() => {
+                abortController.abort();
+            }, 11 * 60 * 1000);
+
+            // Progress updates
+            let progressInterval = setInterval(() => {
+                const messages = [
+                    "Gathering information from web sources...",
+                    "Analyzing and filtering relevant content...",
+                    "Synthesizing research findings...",
+                    "Generating comprehensive report...",
+                    "Finalizing citations and sources..."
+                ];
+                const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+                progressText.textContent = randomMessage;
+            }, 15000);
+
             try {
                 const response = await fetch('/research', {
                     method: 'POST',
@@ -333,12 +363,30 @@
                     body: JSON.stringify({
                         query: query,
                         report_type: reportType
-                    })
+                    }),
+                    signal: abortController.signal
                 });
 
+                clearTimeout(timeoutId);
+                clearInterval(progressInterval);
+
                 if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || 'Research failed');
+                    let errorMessage = 'Research failed';
+                    try {
+                        // Clone response before reading to avoid "body stream already read" error
+                        const responseClone = response.clone();
+                        const error = await response.json();
+                        errorMessage = error.detail || errorMessage;
+                    } catch (parseError) {
+                        // If response is not JSON, get text content from clone
+                        try {
+                            const errorText = await response.text();
+                            errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`;
+                        } catch (textError) {
+                            errorMessage = `Server error (${response.status}): Unable to read response`;
+                        }
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 const data = await response.json();
@@ -347,19 +395,34 @@
                 displayResults(data);
 
             } catch (error) {
-                errorMessage.textContent = `Error: ${error.message}`;
+                clearTimeout(timeoutId);
+                clearInterval(progressInterval);
+
+                if (error.name === 'AbortError') {
+                    errorMessage.textContent = 'Research timed out after 11 minutes. Try a more specific query or use a shorter report type.';
+                } else {
+                    errorMessage.textContent = `Error: ${error.message}`;
+                }
                 errorMessage.style.display = 'block';
             } finally {
                 loadingSection.style.display = 'none';
                 submitBtn.disabled = false;
+                progressText.textContent = 'GPT Researcher is gathering information from multiple sources...';
             }
         });
 
         clearBtn.addEventListener('click', () => {
+            // Abort ongoing request if any
+            if (abortController) {
+                abortController.abort();
+            }
+
             form.reset();
             resultsSection.style.display = 'none';
             errorMessage.style.display = 'none';
             warningMessage.style.display = 'none';
+            loadingSection.style.display = 'none';
+            submitBtn.disabled = false;
         });
 
         function displayResults(data) {
