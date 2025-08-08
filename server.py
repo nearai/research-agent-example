@@ -61,8 +61,18 @@ async def conduct_research(request: ResearchRequest) -> Dict:
 
         # Create researcher instance with disabled verbose to avoid ANSI codes
         researcher = GPTResearcher(
-            query=request.query, report_type=request.report_type, verbose=False
+            query=request.query,
+            report_type=request.report_type,
+            verbose=False
         )
+
+        # Override LLM configuration to avoid temperature issues (using new parameter names)
+        from gpt_researcher.config import Config
+        config = Config()
+        config.smart_llm = "gpt-4o-mini"  # Use new parameter name
+        config.fast_llm = "gpt-4o-mini"  # Use new parameter name
+        config.temperature = 1.0  # Use default temperature
+        researcher.cfg = config
 
         # Conduct research with timeout
         print(f"Starting research for: {request.query}")

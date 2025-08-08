@@ -373,12 +373,18 @@
                 if (!response.ok) {
                     let errorMessage = 'Research failed';
                     try {
+                        // Clone response before reading to avoid "body stream already read" error
+                        const responseClone = response.clone();
                         const error = await response.json();
                         errorMessage = error.detail || errorMessage;
                     } catch (parseError) {
-                        // If response is not JSON, get text content
-                        const errorText = await response.text();
-                        errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`;
+                        // If response is not JSON, get text content from clone
+                        try {
+                            const errorText = await response.text();
+                            errorMessage = `Server error (${response.status}): ${errorText.substring(0, 100)}`;
+                        } catch (textError) {
+                            errorMessage = `Server error (${response.status}): Unable to read response`;
+                        }
                     }
                     throw new Error(errorMessage);
                 }
